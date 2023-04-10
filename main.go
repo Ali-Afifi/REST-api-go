@@ -151,12 +151,83 @@ func (ts *taskServer) deleteAllTasksHandler(w http.ResponseWriter, req *http.Req
 	ts.store.DeleteAllTasks()
 }
 
+func (ts *taskServer) tagHandler(w http.ResponseWriter, req *http.Request) {
+	log.Printf("handling tasks by tag at %s\n", req.URL.Path)
+
+	if req.Method != http.MethodGet {
+		http.Error(w, fmt.Sprintf("expect method GET /tag/<tag>, got %v", req.Method), http.StatusMethodNotAllowed)
+		return
+	}
+
+	path := strings.Trim(req.URL.Path, "/")
+	pathParts := strings.Split(path, "/")
+	if len(pathParts) < 2 {
+		http.Error(w, "expect /tag/<tag> path", http.StatusBadRequest)
+		return
+	}
+	tag := pathParts[1]
+
+	tasks := ts.store.GetTasksByTag(tag)
+	js, err := json.Marshal(tasks)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(js)
+}
+
+func (ts *taskServer) dueHandler(w http.ResponseWriter, req *http.Request) {
+	log.Printf("handling tasks by due at %s\n", req.URL.Path)
+
+	if req.Method != http.MethodGet {
+		http.Error(w, fmt.Sprintf("expect method GET /due/<date>, got %v", req.Method), http.StatusMethodNotAllowed)
+		return
+	}
+
+	path := strings.Trim(req.URL.Path, "/")
+	pathParts := strings.Split(path, "/")
+
+	badRequestError := func() {
+		http.Error(w, fmt.Sprintf("expect /due/<year>/<month>/<day>, got %v", req.URL.Path), http.StatusBadRequest)
+	}
+	if len(pathParts) != 4 {
+		badRequestError()
+		return
+	}
+
+	year, err := strconv.Atoi(pathParts[1])
+	if err != nil {
+		badRequestError()
+		return
+	}
+	month, err := strconv.Atoi(pathParts[2])
+	if err != nil || month < int(time.January) || month > int(time.December) {
+		badRequestError()
+		return
+	}
+	day, err := strconv.Atoi(pathParts[3])
+	if err != nil {
+		badRequestError()
+		return
+	}
+
+	tasks := ts.store.GetTasksByDueDate(year, time.Month(month), day)
+	js, err := json.Marshal(tasks)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(js)
+}
+
 func main() {
 	mux := http.NewServeMux()
 	server := NewTaskServer()
 	mux.HandleFunc("/task/", server.taskHandler)
-	// mux.HandleFunc("/tag/", server.tagHandler)
-	// mux.HandleFunc("/due/", server.dueHandler)
+	mux.HandleFunc("/tag/", server.tagHandler)
+	mux.HandleFunc("/due/", server.dueHandler)
 
 	log.Fatal(http.ListenAndServe("localhost:"+os.Getenv("SERVERPORT"), mux))
 
