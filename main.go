@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Ali-Afifi/REST-api-go/pkg/middleware"
 	"github.com/Ali-Afifi/REST-api-go/pkg/taskstore"
 )
 
@@ -21,6 +22,17 @@ type taskServer struct {
 func NewTaskServer() *taskServer {
 	store := taskstore.New()
 	return &taskServer{store: store}
+}
+
+// renderJSON renders 'v' as JSON and writes it as a response into w.
+func renderJSON(w http.ResponseWriter, v interface{}) {
+	js, err := json.Marshal(v)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(js)
 }
 
 func (ts *taskServer) taskHandler(w http.ResponseWriter, req *http.Request) {
@@ -62,8 +74,6 @@ func (ts *taskServer) taskHandler(w http.ResponseWriter, req *http.Request) {
 }
 
 func (ts *taskServer) createTaskHandler(w http.ResponseWriter, req *http.Request) {
-	log.Printf("handling task create at %s\n", req.URL.Path)
-
 	// Types used internally in this handler to (de-)serialize the request and
 	// response from/to JSON.
 	type RequestTask struct {
@@ -97,49 +107,25 @@ func (ts *taskServer) createTaskHandler(w http.ResponseWriter, req *http.Request
 	}
 
 	id := ts.store.CreateTask(rt.Text, rt.Tags, rt.Due)
-	js, err := json.Marshal(ResponseId{Id: id})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(js)
+	renderJSON(w, ResponseId{Id: id})
 }
 
 func (ts *taskServer) getAllTasksHandler(w http.ResponseWriter, req *http.Request) {
-	log.Printf("handling get all tasks at %s\n", req.URL.Path)
-
 	allTasks := ts.store.GetAllTasks()
-	js, err := json.Marshal(allTasks)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(js)
+	renderJSON(w, allTasks)
 }
 
 func (ts *taskServer) getTaskHandler(w http.ResponseWriter, req *http.Request, id int) {
-	log.Printf("handling get task at %s\n", req.URL.Path)
-
 	task, err := ts.store.GetTask(id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 
-	js, err := json.Marshal(task)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(js)
+	renderJSON(w, task)
 }
 
 func (ts *taskServer) deleteTaskHandler(w http.ResponseWriter, req *http.Request, id int) {
-	log.Printf("handling delete task at %s\n", req.URL.Path)
-
 	err := ts.store.DeleteTask(id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
@@ -147,13 +133,10 @@ func (ts *taskServer) deleteTaskHandler(w http.ResponseWriter, req *http.Request
 }
 
 func (ts *taskServer) deleteAllTasksHandler(w http.ResponseWriter, req *http.Request) {
-	log.Printf("handling delete all tasks at %s\n", req.URL.Path)
 	ts.store.DeleteAllTasks()
 }
 
 func (ts *taskServer) tagHandler(w http.ResponseWriter, req *http.Request) {
-	log.Printf("handling tasks by tag at %s\n", req.URL.Path)
-
 	if req.Method != http.MethodGet {
 		http.Error(w, fmt.Sprintf("expect method GET /tag/<tag>, got %v", req.Method), http.StatusMethodNotAllowed)
 		return
@@ -168,18 +151,10 @@ func (ts *taskServer) tagHandler(w http.ResponseWriter, req *http.Request) {
 	tag := pathParts[1]
 
 	tasks := ts.store.GetTasksByTag(tag)
-	js, err := json.Marshal(tasks)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(js)
+	renderJSON(w, tasks)
 }
 
 func (ts *taskServer) dueHandler(w http.ResponseWriter, req *http.Request) {
-	log.Printf("handling tasks by due at %s\n", req.URL.Path)
-
 	if req.Method != http.MethodGet {
 		http.Error(w, fmt.Sprintf("expect method GET /due/<date>, got %v", req.Method), http.StatusMethodNotAllowed)
 		return
@@ -213,13 +188,7 @@ func (ts *taskServer) dueHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	tasks := ts.store.GetTasksByDueDate(year, time.Month(month), day)
-	js, err := json.Marshal(tasks)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(js)
+	renderJSON(w, tasks)
 }
 
 func main() {
@@ -229,6 +198,8 @@ func main() {
 	mux.HandleFunc("/tag/", server.tagHandler)
 	mux.HandleFunc("/due/", server.dueHandler)
 
-	log.Fatal(http.ListenAndServe("localhost:"+os.Getenv("SERVERPORT"), mux))
+	handler := middleware.Logging(mux)
+	handler = middleware.PanicRecovery(handler)
 
+	log.Fatal(http.ListenAndServe("localhost:"+os.Getenv("SERVERPORT"), handler))
 }
