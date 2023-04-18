@@ -12,6 +12,7 @@ import (
 
 	"github.com/Ali-Afifi/REST-api-go/pkg/taskstore"
 
+	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 )
 
@@ -25,7 +26,6 @@ func NewTaskServer() *taskServer {
 }
 
 // renderJSON renders 'v' as JSON and writes it as a response into w.
-
 func renderJSON(w http.ResponseWriter, v interface{}) {
 	js, err := json.Marshal(v)
 	if err != nil {
@@ -37,8 +37,6 @@ func renderJSON(w http.ResponseWriter, v interface{}) {
 }
 
 func (ts *taskServer) createTaskHandler(w http.ResponseWriter, req *http.Request) {
-	log.Printf("handling task create at %s\n", req.URL.Path)
-
 	// Types used internally in this handler to (de-)serialize the request and
 	// response from/to JSON.
 	type RequestTask struct {
@@ -76,20 +74,16 @@ func (ts *taskServer) createTaskHandler(w http.ResponseWriter, req *http.Request
 }
 
 func (ts *taskServer) getAllTasksHandler(w http.ResponseWriter, req *http.Request) {
-	log.Printf("handling get all tasks at %s\n", req.URL.Path)
-
 	allTasks := ts.store.GetAllTasks()
 	renderJSON(w, allTasks)
 }
 
 func (ts *taskServer) getTaskHandler(w http.ResponseWriter, req *http.Request) {
-	log.Printf("handling get task at %s\n", req.URL.Path)
-
 	// Here and elsewhere, not checking error of Atoi because the router only
 	// matches the [0-9]+ regex.
 	id, _ := strconv.Atoi(mux.Vars(req)["id"])
-
 	task, err := ts.store.GetTask(id)
+
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
@@ -99,34 +93,25 @@ func (ts *taskServer) getTaskHandler(w http.ResponseWriter, req *http.Request) {
 }
 
 func (ts *taskServer) deleteTaskHandler(w http.ResponseWriter, req *http.Request) {
-	log.Printf("handling delete task at %s\n", req.URL.Path)
-
 	id, _ := strconv.Atoi(mux.Vars(req)["id"])
-
 	err := ts.store.DeleteTask(id)
+
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 	}
 }
 
 func (ts *taskServer) deleteAllTasksHandler(w http.ResponseWriter, req *http.Request) {
-	log.Printf("handling delete all tasks at %s\n", req.URL.Path)
 	ts.store.DeleteAllTasks()
 }
 
 func (ts *taskServer) tagHandler(w http.ResponseWriter, req *http.Request) {
-	log.Printf("handling tasks by tag at %s\n", req.URL.Path)
-
 	tag := mux.Vars(req)["tag"]
-
 	tasks := ts.store.GetTasksByTag(tag)
-
 	renderJSON(w, tasks)
 }
 
 func (ts *taskServer) dueHandler(w http.ResponseWriter, req *http.Request) {
-	log.Printf("handling tasks by due at %s\n", req.URL.Path)
-
 	vars := mux.Vars(req)
 	badRequestError := func() {
 		http.Error(w, fmt.Sprintf("expect /due/<year>/<month>/<day>, got %v", req.URL.Path), http.StatusBadRequest)
@@ -145,7 +130,6 @@ func (ts *taskServer) dueHandler(w http.ResponseWriter, req *http.Request) {
 }
 
 func main() {
-
 	router := mux.NewRouter()
 	router.StrictSlash(true)
 	server := NewTaskServer()
@@ -158,6 +142,11 @@ func main() {
 	router.HandleFunc("/tag/{tag}/", server.tagHandler).Methods("GET")
 	router.HandleFunc("/due/{year:[0-9]+}/{month:[0-9]+}/{day:[0-9]+}/", server.dueHandler).Methods("GET")
 
-	log.Fatal(http.ListenAndServe("localhost:"+os.Getenv("SERVERPORT"), router))
+	// Set up logging and panic recovery middleware.
+	router.Use(func(h http.Handler) http.Handler {
+		return handlers.LoggingHandler(os.Stdout, h)
+	})
+	router.Use(handlers.RecoveryHandler(handlers.PrintRecoveryStack(true)))
 
+	log.Fatal(http.ListenAndServe("localhost:"+os.Getenv("SERVERPORT"), router))
 }
